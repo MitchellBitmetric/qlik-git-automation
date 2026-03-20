@@ -256,10 +256,32 @@ def update_changelog(current: str, new_entry: str) -> str:
 
 
 def update_qlik_changelog(script_content: str, qlik_block: str) -> str:
-    pattern = r"/\*-{5,}.*?Log\s*&\s*Version.*?-{5,}\*/"
-    match   = re.search(pattern, script_content, re.DOTALL | re.IGNORECASE)
-    if match:
-        return script_content[: match.start()] + qlik_block + script_content[match.end() :]
+    # Zoek de ///$tab regel (bijv. "///$tab 📝 Changelog")
+    tab_match = re.search(r"///\s*\$tab\s+.*[Cc]hangelog[^\n]*\n", script_content)
+
+    # Zoek het bestaande /* Log & Version */ blok
+    block_pattern = r"/\*-{5,}.*?Log\s*&\s*Version.*?-{5,}\*/"
+    block_match   = re.search(block_pattern, script_content, re.DOTALL | re.IGNORECASE)
+
+    if tab_match:
+        # Alles vóór én inclusief de $tab-regel bewaren
+        before_tab = script_content[:tab_match.end()]
+        after_tab  = script_content[tab_match.end():]
+
+        if block_match and block_match.start() >= tab_match.end():
+            # Vervang het bestaande blok (dat ná de $tab-regel staat)
+            block_start = block_match.start() - tab_match.end()
+            block_end   = block_match.end()   - tab_match.end()
+            after_tab   = after_tab[:block_start] + qlik_block + after_tab[block_end:]
+        else:
+            # Geen bestaand blok — invoegen direct na de $tab-regel
+            after_tab = qlik_block + "\n\n" + after_tab
+
+        return before_tab + after_tab
+
+    # Geen $tab-regel gevonden — bestaand blok vervangen of bovenaan toevoegen
+    if block_match:
+        return script_content[:block_match.start()] + qlik_block + script_content[block_match.end():]
     return qlik_block + "\n\n" + script_content
 
 
