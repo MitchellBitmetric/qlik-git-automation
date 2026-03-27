@@ -31,13 +31,11 @@ jobs:
       - name: Install dependencies
         run: pip install google-genai requests
 
-      - name: Download pr_automation.py uit automation-repo
-        run: |
-          curl -sSL \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3.raw" \
-            "https://api.github.com/repos/${{ github.repository_owner }}/qlik-git-automation/contents/.github/scripts/pr_automation.py?ref=main" \
-            -o pr_automation.py
+      - name: Checkout automation-repo (voor scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: MitchellBitmetric/qlik-git-automation
+          path: automation
 
       - name: Run PR automation script
         env:
@@ -50,7 +48,7 @@ jobs:
           REPO_FULL_NAME: ${{ github.repository }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python pr_automation.py
+        run: python automation/.github/scripts/pr_automation.py
 
       - name: Commit and push changes
         run: |
