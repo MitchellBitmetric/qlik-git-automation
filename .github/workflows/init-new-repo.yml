@@ -1,8 +1,8 @@
 name: Initialiseer nieuwe repo met workflows
 
 on:
-  organization:
-    types: [repository_created]
+  repository:
+    types: [created]
 
 jobs:
   init-repo:
