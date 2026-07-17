@@ -28,6 +28,8 @@ DEFAULTS: dict[str, Any] = {
     # [skip release]-marker en bot-commits). Bedoeld voor Gitoqlok-housekeeping.
     "skip_release_when": [
         "Gitoqlok: auto-restore app properties after merge",
+        "Update branches table",
+        "Gitoqlok initial commit",
     ],
     "ai": {
         "polish": ["release_notes", "qlik_block"],

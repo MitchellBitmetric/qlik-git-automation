@@ -109,9 +109,14 @@ def main() -> int:
         print(f"  ⏭  Tag {new_version} bestaat al — release overgeslagen.")
         return 0
 
-    # 2. Commits sinds laatste tag
-    commits = get_commits_since(current_tag)
-    print(f"  {len(commits)} commit(s) sinds {current_tag or 'begin repo'}")
+    # 2. Commits sinds laatste tag — housekeeping/seed-commits eruit filteren
+    commits = cl.filter_meaningful_commits(
+        get_commits_since(current_tag),
+        config.get("skip_release_when", []),
+        extra_markers=[SKIP_MARKER],
+        bot_name=BOT_NAME,
+    )
+    print(f"  {len(commits)} inhoudelijke commit(s) sinds {current_tag or 'begin repo'}")
     author = commits[0].author if commits else platform.repo_slug
 
     # 3. Deterministisch bouwen

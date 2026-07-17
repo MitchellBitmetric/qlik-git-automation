@@ -15,11 +15,12 @@ import glob
 import os
 import re
 
-# Kolombreedtes voor nette uitlijning in het blok.
+# Kolombreedtes voor nette uitlijning in het blok. Naam ruim genomen zodat de
+# Mutatie-kolom met afstand daarachter begint en de tekst onder elkaar valt.
 _COL_VERSION = 16
 _COL_DATE = 14
-_COL_NAME = 16
-_SEP_WIDTH = 111
+_COL_NAME = 30
+_SEP_WIDTH = 120
 _SEP = "-" * _SEP_WIDTH
 
 # Herkent een volledig Log & Version blok (voor vervangen / valideren).
@@ -66,14 +67,25 @@ def find_qlik_changelog_script(config: dict) -> str | None:
 # ──────────────────────────────────────────────
 
 def _format_row(version: str, date: str, name: str, mutation_lines: list[str]) -> list[str]:
-    """Eén versieregel + eventuele vervolgregels, uitgelijnd op de Mutatie-kolom."""
-    indent = " " * (_COL_VERSION + _COL_DATE + _COL_NAME)
-    first, *rest = mutation_lines or [""]
-    rows = [
-        f"{version:<{_COL_VERSION}}{date:<{_COL_DATE}}{name:<{_COL_NAME}}{first}".rstrip()
-    ]
-    for extra in rest:
-        rows.append(f"{indent}{extra}".rstrip())
+    """Eén versieregel + vervolgregels, mutatietekst netjes onder elkaar.
+
+    Alle mutatieregels lijnen uit op de Mutatie-kolom. Past een veld (meestal een
+    lange naam) niet in zijn kolom, dan komen álle mutaties op een eigen regel
+    daaronder in plaats van de eerste vastgeplakt aan de naam.
+    """
+    indent_n = _COL_VERSION + _COL_DATE + _COL_NAME
+    indent = " " * indent_n
+    mutations = mutation_lines or [""]
+    prefix = f"{version:<{_COL_VERSION}}{date:<{_COL_DATE}}{name:<{_COL_NAME}}"
+
+    if len(prefix) > indent_n:                       # veld te breed voor kolom
+        rows = [prefix.rstrip()]
+        rows += [f"{indent}{m}".rstrip() for m in mutations]
+        return rows
+
+    first, *rest = mutations
+    rows = [f"{prefix}{first}".rstrip()]
+    rows += [f"{indent}{m}".rstrip() for m in rest]
     return rows
 
 
@@ -106,9 +118,9 @@ def build_qlik_block(
 
     Bestaande regels uit ``previous_block`` blijven bewaard onder de nieuwe entry.
     ``version`` mag met of zonder 'v' worden aangeleverd; in het blok staat het
-    zonder 'v' (conform het bestaande formaat).
+    altijd mét 'v' (bijv. v0.0.1).
     """
-    ver = version.lstrip("v")
+    ver = "v" + version.lstrip("v")
     # Voorkom dat gebruikerstekst het commentaar vroegtijdig afsluit.
     safe_mutations = [line.replace("*/", "* /") for line in (mutation_lines or ["-"])]
 
