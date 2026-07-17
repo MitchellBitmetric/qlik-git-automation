@@ -23,6 +23,12 @@ load_script:
 # Ophoging gebeurt met rolling-digit carry: v0.0.9 -> v0.1.0, v0.9.9 -> v1.0.0.
 initial_version: "v0.0.1"
 
+# Commit-berichten die GEEN release mogen veroorzaken. De release draait op
+# elke push naar main; deze lijst (plus de automatische [skip release]-marker en
+# bot-commits) voorkomt releases bij housekeeping-commits van Gitoqlok.
+skip_release_when:
+  - "Gitoqlok: auto-restore app properties after merge"
+
 # Optionele AI-polish. Alleen actief als GEMINI_API_KEY als secret aanwezig is.
 # Zonder key blijft alles deterministisch en is geen secret nodig.
 ai:

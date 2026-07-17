@@ -60,23 +60,38 @@ def write_file(path: str, content: str) -> None:
     print(f"  ✔ Geschreven: {path}")
 
 
-def is_release_commit() -> bool:
+def skip_reason(config: dict) -> str | None:
+    """Geef een reden om de release over te slaan, of None om door te gaan.
+
+    Sla over bij: de [skip release]-marker, de release-bot als auteur (loop-
+    beveiliging), of wanneer het commit-bericht een van de configureerbare
+    'skip_release_when'-patronen bevat (bijv. Gitoqlok-housekeeping).
+    """
     try:
         message = head_commit_message()
         author = head_commit_author()
     except subprocess.CalledProcessError:
-        return False
-    return SKIP_MARKER in message or author == BOT_NAME
+        return None
+    if SKIP_MARKER in message:
+        return f"'{SKIP_MARKER}'-marker in commit-bericht"
+    if author == BOT_NAME:
+        return "commit door de release-bot (loop-beveiliging)"
+    for pattern in config.get("skip_release_when", []):
+        if pattern and pattern in message:
+            return f"commit-bericht bevat '{pattern}'"
+    return None
 
 
 def main() -> int:
     print("── Qlik Release Script ──")
 
-    if is_release_commit():
-        print("  ⏭  HEAD is al een release-commit — overslaan (loop-beveiliging).")
+    config = load_config()
+
+    reason = skip_reason(config)
+    if reason:
+        print(f"  ⏭  Release overgeslagen — {reason}.")
         return 0
 
-    config = load_config()
     platform = detect_platform()
     today = datetime.date.today().isoformat()
     print(f"  Platform: {platform.name}  Repo: {platform.repo_slug}")

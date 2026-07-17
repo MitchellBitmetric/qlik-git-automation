@@ -24,6 +24,11 @@ DEFAULTS: dict[str, Any] = {
         "tab_marker": "Changelog",
     },
     "initial_version": "v0.0.1",
+    # Commit-berichten die géén release mogen veroorzaken (naast de automatische
+    # [skip release]-marker en bot-commits). Bedoeld voor Gitoqlok-housekeeping.
+    "skip_release_when": [
+        "Gitoqlok: auto-restore app properties after merge",
+    ],
     "ai": {
         "polish": ["release_notes", "qlik_block"],
     },
