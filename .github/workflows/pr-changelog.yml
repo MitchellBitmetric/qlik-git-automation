@@ -5,7 +5,13 @@ name: Qlik Changelog Preview (Reusable)
 # terug naar de PR-branch. Maakt GEEN tag/release — dat gebeurt bij dev -> main.
 
 on:
-  workflow_call: {}
+  workflow_call:
+    inputs:
+      automation_repo:
+        description: "owner/repo waar qlik-git-automation staat (voor cross-org gebruik)"
+        type: string
+        required: false
+        default: bitmetric-bv/qlik-git-automation
 
 permissions:
   contents: write
@@ -34,7 +40,7 @@ jobs:
       - name: Checkout automation repo (scripts)
         uses: actions/checkout@v4
         with:
-          repository: bitmetric-bv/qlik-git-automation
+          repository: ${{ inputs.automation_repo }}
           ref: main
           path: automation
 
