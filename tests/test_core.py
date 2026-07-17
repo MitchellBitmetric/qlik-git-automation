@@ -56,6 +56,24 @@ def test_changelog_groups_conventional_commits():
     assert "### Overig" in entry and "tweak colors" in entry
 
 
+def test_filter_removes_housekeeping_and_seed_and_bot():
+    commits = [
+        Commit("a1", "feat: echt dashboard", "Alice"),
+        Commit("b2", "Update branches table", "Alice"),
+        Commit("c3", "chore: workflow-bestanden toegevoegd via qlik-git-automation [skip release]", "Alice"),
+        Commit("d4", "Gitoqlok: auto-restore app properties after merge", "Bob"),
+        Commit("e5", "chore(release): v0.0.1 [skip release]", "qlik-release-bot"),
+        Commit("f6", "fix: echte bugfix", "Bob"),
+    ]
+    kept = cl.filter_meaningful_commits(
+        commits,
+        ["Gitoqlok: auto-restore app properties after merge", "Update branches table"],
+        extra_markers=["[skip release]"],
+        bot_name="qlik-release-bot",
+    )
+    assert [c.subject for c in kept] == ["feat: echt dashboard", "fix: echte bugfix"]
+
+
 def test_changelog_empty_commits():
     entry = cl.build_changelog_entry("v0.1.0", "2026-07-17", [])
     assert "Geen noemenswaardige wijzigingen" in entry

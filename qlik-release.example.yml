@@ -29,6 +29,7 @@ initial_version: "v0.0.1"
 skip_release_when:
   - "Gitoqlok: auto-restore app properties after merge"
   - "Update branches table"
+  - "Gitoqlok initial commit"
 
 # Optionele AI-polish. Alleen actief als GEMINI_API_KEY als secret aanwezig is.
 # Zonder key blijft alles deterministisch en is geen secret nodig.

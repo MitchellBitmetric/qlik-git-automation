@@ -39,6 +39,31 @@ _GROUP_ORDER = ["Added", "Changed", "Fixed", "Removed", "Documentation", "Overig
 _CC_RE = re.compile(r"^(?P<type>\w+)(?:\([^)]*\))?(?P<bang>!)?:\s*(?P<desc>.+)$")
 
 
+def filter_meaningful_commits(
+    commits: list[Commit],
+    skip_patterns: list[str],
+    extra_markers: list[str] | None = None,
+    bot_name: str | None = None,
+) -> list[Commit]:
+    """Laat housekeeping-commits weg uit changelog/mutaties.
+
+    Sluit commits uit waarvan het onderwerp een ``skip_patterns``- of
+    ``extra_markers``-tekst bevat (bijv. Gitoqlok-housekeeping of de
+    ``[skip release]``-marker), of die door de release-bot zijn gemaakt.
+    """
+    markers = list(extra_markers or [])
+    result: list[Commit] = []
+    for c in commits:
+        if bot_name and c.author == bot_name:
+            continue
+        if any(m and m in c.subject for m in markers):
+            continue
+        if any(p and p in c.subject for p in skip_patterns):
+            continue
+        result.append(c)
+    return result
+
+
 def classify_commit(subject: str) -> tuple[str, str]:
     """Geef (kop, beschrijving) voor één commit-onderwerp."""
     m = _CC_RE.match(subject)

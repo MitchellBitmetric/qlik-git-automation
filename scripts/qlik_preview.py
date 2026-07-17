@@ -47,10 +47,15 @@ def main() -> int:
             break
 
     _, next_version = semver.determine_next_version(config["initial_version"])
-    commits = get_commits_since(base_ref)
-    print(f"  Preview versie: {next_version}  ({len(commits)} commit(s) t.o.v. {base_ref or 'begin'})")
+    commits = cl.filter_meaningful_commits(
+        get_commits_since(base_ref),
+        config.get("skip_release_when", []),
+        extra_markers=[SKIP_MARKER],
+        bot_name=BOT_NAME,
+    )
+    print(f"  Preview versie: {next_version}  ({len(commits)} inhoudelijke commit(s) t.o.v. {base_ref or 'begin'})")
     if not commits:
-        print("  ℹ Geen nieuwe commits — niets te previewen.")
+        print("  ℹ Geen inhoudelijke commits — niets te previewen.")
         return 0
 
     author = commits[0].author
