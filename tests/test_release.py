@@ -29,6 +29,11 @@ def test_skip_on_gitoqlok_housekeeping(monkeypatch):
     assert qr.skip_reason(DEFAULTS) is not None
 
 
+def test_skip_on_update_branches_table(monkeypatch):
+    _patch_head(monkeypatch, "Update branches table")
+    assert qr.skip_reason(DEFAULTS) is not None
+
+
 def test_skip_on_seed_commit(monkeypatch):
     _patch_head(monkeypatch, "chore: workflow-bestanden toegevoegd via qlik-git-automation [skip release]")
     assert qr.skip_reason(DEFAULTS) is not None
