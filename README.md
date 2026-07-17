@@ -1,250 +1,141 @@
 # Qlik Git Automation
 
-Automatische changelog, documentatie en release-beheer voor Qlik Sense-applicaties die via Git worden gesynchroniseerd.
+Automatische versionering, changelog en releases voor **Gitoqlok**-beheerde Qlik
+Sense-apps — identiek op **GitHub** en **GitLab**.
 
-Bij elke **Pull Request / Merge Request** worden automatisch drie bestanden bijgewerkt:
+Gitoqlok (de Motio Chrome-extensie) commit vanuit de Qlik Sense UI het laadscript
+en de app-objecten naar Git. Deze automatisering bouwt daar bovenop: bij een
+merge `dev -> main` bepaalt de pipeline de volgende versie, bouwt de release-notes
+uit de commits, en injecteert een geldig **`/* Log & Version */`** blok in het
+Qlik-laadscript**bestand** — dat via een latere Gitoqlok *pull* weer in de app komt.
 
-- `CHANGELOG.md` — versiegeschiedenis in Keep a Changelog-formaat
-- `README.md` — projectdocumentatie (alleen als dat nodig is)
-- `Changelog.qvs` — het Qlik laadscript met een `/* Log & Version */` blok
-
-Na een **merge naar main** wordt automatisch een nieuwe **release** aangemaakt met een opgehoogd versienummer.
+> **Write-back grens:** CI raakt alleen het bestand in Git aan. De app bijwerken
+> doe je via Gitoqlok in de browser — nooit vanuit CI. Zie
+> [ADR-0001](docs/adr/0001-gitoqlok-writeback-boundary.md).
 
 ---
 
-## Inhoudsopgave
+## Inhoud
 
-- [Vereisten](#vereisten)
-- [Bestandsstructuur](#bestandsstructuur)
+- [Hoe het werkt](#hoe-het-werkt)
+- [Branchmodel](#branchmodel)
+- [Versienummering](#versienummering)
+- [Configuratie](#configuratie-één-bestand)
 - [Installatie GitHub](#installatie-github)
 - [Installatie GitLab](#installatie-gitlab)
-- [Hoe het werkt](#hoe-het-werkt)
-- [Versienummering](#versienummering)
 - [Qlik Log & Version formaat](#qlik-log--version-formaat)
-- [Veelgestelde vragen](#veelgestelde-vragen)
-
----
-
-## Vereisten
-
-| Onderdeel | Details |
-|-----------|---------|
-| **Google Gemini API-sleutel** | Gratis aan te maken via [aistudio.google.com](https://aistudio.google.com) — geen creditcard vereist |
-| **Qlik Git-integratie** | Qlik Cloud met Git-sync ingeschakeld |
-| **Qlik scriptbestanden** | Opgeslagen als `.qvs`-bestanden (standaard Qlik Cloud formaat) |
-| **GitLab** (alleen GitLab) | Personal Access Token met `api` en `write_repository` scope |
-
----
-
-## Bestandsstructuur
-
-### GitHub
-```
-.github/
-├── workflows/
-│   └── pr-changelog.yml        ← GitHub Actions workflow
-└── scripts/
-    └── pr_automation.py        ← Automation script
-```
-
-### GitLab
-```
-.gitlab-ci.yml                  ← GitLab CI/CD pipeline (in root van repo)
-scripts/
-├── pr_automation.py            ← Automation script (draait bij MR)
-└── create_release.py           ← Release script (draait na merge)
-```
-
----
-
-## Installatie GitHub
-
-### Stap 1 — Bestanden plaatsen
-
-Kopieer de volgende bestanden naar je repo:
-
-```
-.github/workflows/pr-changelog.yml
-.github/scripts/pr_automation.py
-```
-
-### Stap 2 — Gemini API-sleutel aanmaken
-
-1. Ga naar [aistudio.google.com](https://aistudio.google.com)
-2. Klik op **Get API key → Create API key**
-3. Kopieer de sleutel (`AIza...`)
-
-### Stap 3 — Secret instellen in GitHub
-
-Ga naar je repo → **Settings → Secrets and variables → Actions → New repository secret**:
-
-| Name | Value |
-|------|-------|
-| `GEMINI_API_KEY` | `AIza...` |
-
-### Stap 4 — Actions inschakelen
-
-Ga naar het tabblad **Actions** en schakel workflows in als dat gevraagd wordt.
-
-### Stap 5 — Klaar
-
-Maak een Pull Request naar `main` of `master`. De workflow start automatisch.
-
----
-
-## Installatie GitLab
-
-### Stap 1 — Bestanden plaatsen
-
-Kopieer de volgende bestanden naar je repo:
-
-```
-.gitlab-ci.yml
-scripts/pr_automation.py
-scripts/create_release.py
-```
-
-### Stap 2 — Gemini API-sleutel aanmaken
-
-1. Ga naar [aistudio.google.com](https://aistudio.google.com)
-2. Klik op **Get API key → Create API key**
-3. Kopieer de sleutel (`AIza...`)
-
-### Stap 3 — Personal Access Token aanmaken
-
-Ga naar **GitLab → jouw avatar → Edit profile → Access Tokens → Add new token**:
-
-| Veld | Waarde |
-|------|--------|
-| Token name | `gitlab-ci-api` |
-| Expiration | bijv. 1 jaar |
-| Scopes | ✅ `api` ✅ `write_repository` |
-
-Kopieer de token (`glpat-...`).
-
-### Stap 4 — CI/CD variabelen instellen
-
-Ga naar je project → **Settings → CI/CD → Variables**:
-
-| Key | Value | Masked |
-|-----|-------|--------|
-| `GEMINI_API_KEY` | `AIza...` | ✅ |
-| `GITLAB_API_TOKEN` | `glpat-...` | ✅ |
-
-> **Let op:** als je branch als **Protected** is ingesteld in GitLab, zet dan ook de variabelen op Protected. Anders worden ze niet doorgegeven aan de pipeline.
-
-### Stap 5 — Protected Tags instellen
-
-Om automatisch git-tags aan te maken na een merge, moeten CI-jobs tags mogen pushen:
-
-Ga naar **Settings → Repository → Protected tags → Add tag**:
-
-| Tag name pattern | Allowed to create |
-|-----------------|-------------------|
-| `v*` | Maintainers + CI/CD |
-
-### Stap 6 — Skipped pipelines instellen (optioneel maar aanbevolen)
-
-Ga naar **Settings → Merge Requests → Merge checks** en vink aan:
-
-☑️ **Skipped pipelines are considered successful**
-
-Dit voorkomt dat je niet kunt mergen als de pipeline wordt overgeslagen.
-
-### Stap 7 — Klaar
-
-Maak een Merge Request naar `main` of `master`. De pipeline start automatisch.
+- [Optionele AI-polish](#optionele-ai-polish)
+- [Architectuur](#architectuur)
+- [FAQ](#faq)
 
 ---
 
 ## Hoe het werkt
 
-### Bij een Pull Request / Merge Request
-
 ```
-1. PR/MR wordt geopend of bijgewerkt
-        │
-        ▼
-2. Versienummer berekenen
-   Leest de laatste git-tag (bijv. v0.1.1)
-   Berekent de volgende versie (→ v0.1.2)
-        │
-        ▼
-3. Context verzamelen via API
-   - Commit-berichten
-   - Gewijzigde bestanden
-   - Huidige CHANGELOG.md
-   - Huidige README.md
-        │
-        ▼
-4. Gemini aanroepen
-   Genereert in één API-call:
-   - Changelog-entry met versienummer v0.1.2
-   - README-update (alleen als relevant)
-   - Qlik Log & Version blok
-        │
-        ▼
-5. Bestanden bijwerken
-   - CHANGELOG.md  → nieuwe entry bovenaan
-                     (bij herhaalde run: bestaande entry vervangen)
-   - README.md     → alleen bijgewerkt als Gemini dat nodig vindt
-   - Changelog.qvs → Log & Version blok vervangen of aangemaakt
-        │
-        ▼
-6. Automatisch committen naar de PR/MR-branch
-   Commit: "chore: automatisch changelog & docs bijgewerkt via MR !22"
+feature/*  --PR-->  dev  --merge-->  main
+                     │                  │
+              changelog-preview   RELEASE-flow (qlik_release.py)
+              (qlik_preview.py)   1. volgende versie (carry vanaf laatste tag)
+                                  2. commits sinds laatste tag verzamelen
+                                  3. CHANGELOG.md + release-notes + Qlik-blok bouwen
+                                  4. (optioneel) AI-polish -> hervalideren
+                                  5. bestanden bijwerken + terugcommit naar main
+                                  6. git-tag + release aanmaken
 ```
 
-### Na merge naar main (alleen GitLab)
+- **Deterministisch:** geen AI nodig voor versie of changelog. Reproduceerbaar en
+  idempotent (dezelfde versie tweemaal draaien doet niets extra's).
+- **Portable:** één set scripts (`scripts/`) draait op beide platforms; alleen de
+  dunne CI-configs en een kleine platform-adapter verschillen.
 
-```
-1. Merge naar main voltooid
-        │
-        ▼
-2. Versienummer ophalen uit CHANGELOG.md
-   (hetzelfde nummer dat tijdens de MR was berekend)
-        │
-        ▼
-3. Git-tag aanmaken en pushen (bijv. v0.1.2)
-        │
-        ▼
-4. GitLab Release aanmaken via API
-   - Naam: "Release v0.1.2"
-   - Beschrijving: inhoud uit CHANGELOG.md + Qlik Log & Version blok
-```
+## Branchmodel
 
-### Loop-beveiliging
+| Branch | Doel |
+|--------|------|
+| `main` | beschermd; **alleen releases** (merge vanaf `dev`) |
+| `dev` | integratie; hier mergen `feature/*` branches |
+| `feature/*` | losse wijzigingen vanuit Gitoqlok |
 
-De automation commit terug naar de branch, wat normaal een nieuwe pipeline zou triggeren. Dit wordt voorkomen doordat de pipeline controleert of de commit-auteur `gitlab-ci-bot` is en in dat geval direct succesvol afsluit (`exit 0`).
-
----
+Instellen van branch protection: zie [docs/branch-protection.md](docs/branch-protection.md).
+`init_repo.py` maakt `dev` aan en zet best-effort protection bij het seeden van een repo.
 
 ## Versienummering
 
-Het versienummer volgt [Semantic Versioning](https://semver.org/) in het formaat `vMAJOR.MINOR.PATCH`.
-
-De automation hoogt automatisch het **patch**-nummer op bij elke PR/MR:
+Rolling-digit carry — elke merge `dev -> main` verhoogt met één stap, elk segment
+rolt over bij 9:
 
 ```
-v0.1.0 → v0.1.1 → v0.1.2 → v0.1.3 ...
+v0.0.8 → v0.0.9 → v0.1.0 → ... → v0.9.9 → v1.0.0
 ```
 
-**Handmatig een minor of major release maken:**
-Maak zelf een tag aan in GitLab/GitHub (bijv. `v0.2.0` of `v1.0.0`). De automation pakt daar automatisch vanaf verder bij de volgende PR.
+Zonder tags start het bij `initial_version` (standaard `v0.0.1`). Zie
+[ADR-0003](docs/adr/0003-deterministic-versioning-optional-ai.md).
 
-**Eerste keer (nog geen tags):**
-Het script start automatisch bij `v0.1.0`.
+## Configuratie (één bestand)
 
----
+Kopieer [`qlik-release.example.yml`](qlik-release.example.yml) naar de root van je
+repo als `qlik-release.yml` en pas alleen aan wat afwijkt. Alles is optioneel:
+
+```yaml
+main_branch: main
+dev_branch: dev
+load_script:
+  path: ""                      # expliciet pad wint; leeg = auto-detectie
+  glob: ["**/Changelog.qvs", "**/*changelog*.qvs"]
+  tab_marker: "Changelog"       # matcht ///$tab ...Changelog
+initial_version: "v0.0.1"
+ai:
+  polish: [release_notes, qlik_block]   # alleen bij aanwezige GEMINI_API_KEY
+```
+
+## Installatie GitHub
+
+1. Plaats twee dunne caller-workflows in je repo (of laat `init_repo.py` dit doen):
+
+   `.github/workflows/pr-changelog.yml`
+   ```yaml
+   on: { pull_request: { branches: [dev] } }
+   jobs:
+     preview:
+       uses: bitmetric-bv/qlik-git-automation/.github/workflows/pr-changelog.yml@main
+       secrets: inherit
+   ```
+
+   `.github/workflows/release.yml`
+   ```yaml
+   on: { push: { branches: [main] } }
+   jobs:
+     release:
+       if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+       uses: bitmetric-bv/qlik-git-automation/.github/workflows/release.yml@main
+       secrets: inherit
+   ```
+
+2. Kopieer `qlik-release.yml` in de root (optioneel; anders gelden defaults).
+3. (optioneel) Zet secret `GEMINI_API_KEY` voor AI-polish.
+4. Stel branch protection in — zie [docs/branch-protection.md](docs/branch-protection.md).
+
+## Installatie GitLab
+
+1. Voeg in de root van je repo een `.gitlab-ci.yml` toe die de template include't:
+
+   ```yaml
+   include:
+     - project: 'bitmetric-bv/qlik-git-automation'
+       file: '/.gitlab-ci.yml'
+       ref: main
+   ```
+
+2. Kopieer `qlik-release.yml` in de root (optioneel).
+3. **Settings → CI/CD → Variables:** `GITLAB_API_TOKEN` (PAT met `api` +
+   `write_repository`), optioneel `GEMINI_API_KEY`. Protected indien de branch dat is.
+4. **Protected tags:** patroon `v*` → Maintainers + CI/CD.
+5. Branch protection — zie [docs/branch-protection.md](docs/branch-protection.md).
 
 ## Qlik Log & Version formaat
 
-Het script zoekt automatisch naar een Qlik scriptbestand met de Changelog-sectie via:
-
-1. Een bestand genaamd `Changelog.qvs` of `changelog.qvs`
-2. Elk `.qvs`-bestand met een `///$tab Changelog` header
-
-Het gegenereerde blok volgt dit formaat:
+Het geïnjecteerde blok is een geldig Qlik-blokcommentaar (round-trip-baar):
 
 ```
 /*---------------------------------------------------------------------------------------------------------------
@@ -252,29 +143,62 @@ Log & Version
 
 Versienummer    Datum         Naam            Mutatie
 ---------------------------------------------------------------------------------------------------------------
-0.1.2           2026-03-19    gebruikersnaam  Omschrijving van de wijziging
-                                              Extra mutatieregel indien nodig
-0.1.1           2026-03-10    gebruikersnaam  Vorige wijziging
+0.1.0           2026-07-17    Alice           feat: nieuw dashboard Sales
+                                              fix: correcte omzet-KPI
+0.0.9           2026-07-10    Bob             vorige wijziging
 ---------------------------------------------------------------------------------------------------------------*/
 ```
 
-Bestaande regels worden bij elke update **bewaard** en onder de nieuwe entry geplaatst.
+Bestaande regels blijven bewaard onder de nieuwe entry. Het bestand wordt gevonden
+via `load_script.path` → glob → `///$tab ...Changelog` header. Wordt er geen
+`.qvs` gevonden, dan komt het blok in `qlik_changelog_block.txt`.
 
----
+## Optionele AI-polish
 
-## Veelgestelde vragen
+Zonder `GEMINI_API_KEY` is alles deterministisch en is geen secret nodig. Is de key
+aanwezig, dan herformuleert Gemini **alleen de tekst** van de release-notes en de
+mutatieomschrijvingen. Het Qlik-blok wordt daarna hervalideerd; bij twijfel valt het
+systeem terug op het deterministische blok. AI kan het laadscript dus nooit breken.
 
-**De pipeline vindt mijn Qlik scriptbestand niet.**
-Zorg dat je Changelog-tab in Qlik is opgeslagen als `Changelog.qvs`, of dat het bestand een `///$tab Changelog` header bevat. Als het bestand niet gevonden wordt, slaat het script het blok op als `qlik_changelog_block.txt` zodat je het handmatig kunt toevoegen.
+## Architectuur
 
-**De README wordt elke keer opnieuw gegenereerd terwijl dat niet nodig is.**
-Gemini beoordeelt zelf of de README bijgewerkt moet worden op basis van de wijzigingen. Als de README onterecht wordt bijgewerkt, kun je in de prompt in `pr_automation.py` expliciet aangeven welke secties niet gewijzigd mogen worden.
+```
+scripts/
+├── qlik_release.py      # release-flow op dev -> main (entrypoint)
+├── qlik_preview.py      # changelog-preview op feature -> dev (entrypoint)
+└── core/                # portable, platform-agnostisch
+    ├── config.py        # laadt qlik-release.yml + defaults
+    ├── semver.py        # rolling-digit carry
+    ├── gitutil.py       # git-wrappers (commits, identiteit)
+    ├── changelog.py     # CHANGELOG.md bouwen/mergen
+    ├── qlik_block.py    # Qlik-blok bouwen/injecteren/valideren
+    ├── notes.py         # release-notes body
+    ├── gemini.py        # optionele AI-polish (no-op zonder key)
+    ├── platform.py      # platformdetectie + abstracte adapter
+    ├── platform_github.py
+    └── platform_gitlab.py
+.github/workflows/       # dunne GitHub callers + reusable workflows
+.gitlab-ci.yml           # GitLab template (via include)
+.github/scripts/init_repo.py  # seedt nieuwe repo's (workflows, config, dev, protection)
+```
 
-**Ik wil het versienummer anders ophogen (minor in plaats van patch).**
-Pas de functie `bump_patch` aan in `pr_automation.py` en `create_release.py`. Bijvoorbeeld voor minor: `return f"v{major}.{int(minor) + 1}.0"`.
+Qlik/Gitoqlok-specifieke aannames zitten achter `core/qlik_block.py` en de config;
+platformverschillen achter `core/platform_*.py`.
 
-**De pipeline mislukt met een 403-fout bij git push.**
-Controleer of je Personal Access Token (GitLab) de scope `write_repository` heeft, en of de token is ingesteld als CI/CD variabele `GITLAB_API_TOKEN`.
+## FAQ
 
-**Kan ik dit ook gebruiken zonder Qlik?**
-Ja. Als er geen `.qvs`-bestanden gevonden worden, worden alleen `CHANGELOG.md` en `README.md` bijgewerkt. Het Qlik-blok wordt dan opgeslagen als `qlik_changelog_block.txt`.
+**Heb ik een Gemini API-key nodig?** Nee. Zonder key werkt alles deterministisch.
+Een key voegt alleen tekstuele polish toe.
+
+**De pipeline vindt mijn Qlik-scriptbestand niet.** Zet `load_script.path` in
+`qlik-release.yml`, of zorg dat het bestand `Changelog.qvs` heet of een
+`///$tab ...Changelog` header heeft.
+
+**Mag CI de app zelf bijwerken?** Nee — CI wijzigt alleen het bestand. De app
+bijwerken doe je via een Gitoqlok pull. Zie [ADR-0001](docs/adr/0001-gitoqlok-writeback-boundary.md).
+
+**Retriggert de terugcommit de pipeline?** Nee. Release-commits krijgen de marker
+`[skip release]` en een bot-auteur; het script en de caller-workflow slaan die over.
+
+**Ik wil minor/major forceren.** Maak handmatig een tag aan (bijv. `v0.2.0`); de
+volgende release rekent vanaf daar verder.

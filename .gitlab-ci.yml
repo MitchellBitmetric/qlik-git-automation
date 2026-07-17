@@ -1,0 +1,48 @@
+# GitLab CI voor de Qlik Git release-automatisering.
+#
+# Consumer-repos nemen dit over via een remote include:
+#
+#   include:
+#     - project: 'bitmetric-bv/qlik-git-automation'
+#       file: '/.gitlab-ci.yml'
+#       ref: main
+#
+# Identiek gedrag als de GitHub-workflows: dezelfde portable scripts draaien.
+# De scripts zitten niet in `include` (dat pakt alleen YAML), dus elke job
+# cloont de automation-repo — het GitLab-equivalent van "checkout automation".
+
+stages:
+  - preview
+  - release
+
+variables:
+  AUTOMATION_REPO: "https://gitlab.com/bitmetric-bv/qlik-git-automation.git"
+  AUTOMATION_REF: "main"
+
+.qlik_base:
+  image: python:3.11-slim
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq git >/dev/null
+    - pip install --quiet requests pyyaml google-genai
+    - git clone --depth 1 --branch "$AUTOMATION_REF" "$AUTOMATION_REPO" /tmp/automation
+
+# feature -> dev : deterministische changelog-preview op de MR-branch
+qlik_changelog_preview:
+  extends: .qlik_base
+  stage: preview
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "dev"'
+  script:
+    - git checkout -B "$CI_COMMIT_REF_NAME"
+    - python /tmp/automation/scripts/qlik_preview.py
+    - git push "https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:"$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+
+# dev -> main : versie, changelog, injectie, commit-back, tag + release
+qlik_release:
+  extends: .qlik_base
+  stage: release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  script:
+    - git fetch --tags
+    - python /tmp/automation/scripts/qlik_release.py
