@@ -12,6 +12,7 @@
 # cloont de automation-repo — het GitLab-equivalent van "checkout automation".
 
 stages:
+  - onboard
   - preview
   - release
 
@@ -25,6 +26,21 @@ variables:
     - apt-get update -qq && apt-get install -y -qq git >/dev/null
     - pip install --quiet requests pyyaml google-genai
     - git clone --depth 1 --branch "$AUTOMATION_REF" "$AUTOMATION_REPO" /tmp/automation
+
+# Zero-touch onboarding: geplande group-scan die nieuwe Qlik-projecten seedt.
+# Draait ALLEEN in de automation-repo zelf op een pipeline-schedule; consumers
+# includen dit bestand maar de guard voorkomt dat de job bij hen start.
+# Zet in dit project een schedule (Settings -> CI/CD -> Pipeline schedules) met
+# variabele GROUP_ID (group-pad of -id) en secret GITLAB_API_TOKEN.
+qlik_onboard_scan:
+  image: python:3.11-slim
+  stage: onboard
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_PROJECT_PATH == "bitmetric-bv/qlik-git-automation"'
+  before_script:
+    - pip install --quiet requests
+  script:
+    - python scripts/gitlab_init.py
 
 # feature -> dev : deterministische changelog-preview op de MR-branch
 qlik_changelog_preview:

@@ -1,0 +1,32 @@
+name: Scheduled Repo Onboarding (scan)
+
+# Zero-touch onboarding: loopt periodiek de org af en seedt elke repo met
+# '%gitoqlok_repo%' in de beschrijving die nog niet is geseed. Idempotent.
+# Handmatig starten kan via 'Run workflow'.
+
+on:
+  schedule:
+    - cron: "17 * * * *"   # elk uur (op :17 om de piek te mijden)
+  workflow_dispatch: {}
+
+jobs:
+  scan-and-seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout automation repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Scan org and seed Qlik repos
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
+          ORG_NAME: ${{ github.repository_owner }}
+          # REPO_NAME bewust leeg → scan-modus
+        run: python .github/scripts/init_repo.py
