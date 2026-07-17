@@ -1,0 +1,31 @@
+# qlik-release.yml — configuratie voor de Qlik Git release-automatisering
+# ------------------------------------------------------------------------
+# Kopieer dit bestand naar de root van je Qlik-repo als `qlik-release.yml`
+# en pas alleen aan wat afwijkt. Alles is optioneel: ontbrekende sleutels
+# vallen terug op onderstaande standaardwaarden.
+
+# Branchmodel
+main_branch: main        # beschermd; alleen releases komen hier binnen
+dev_branch: dev          # integratiebranch waar feature/* op mergt
+
+# Qlik-laadscript waarin het "Log & Version" blok wordt geïnjecteerd.
+load_script:
+  # Expliciet pad (wint als het bestaat). Laat leeg voor auto-detectie.
+  path: ""
+  # Glob-patronen voor auto-detectie op bestandsnaam.
+  glob:
+    - "**/Changelog.qvs"
+    - "**/*changelog*.qvs"
+  # Valt terug op elk .qvs-bestand met een ///$tab regel die deze tekst bevat.
+  tab_marker: "Changelog"
+
+# Startversie wanneer er nog geen git-tags zijn.
+# Ophoging gebeurt met rolling-digit carry: v0.0.9 -> v0.1.0, v0.9.9 -> v1.0.0.
+initial_version: "v0.0.1"
+
+# Optionele AI-polish. Alleen actief als GEMINI_API_KEY als secret aanwezig is.
+# Zonder key blijft alles deterministisch en is geen secret nodig.
+ai:
+  polish:
+    - release_notes    # herformuleer de prozatekst van de release-notes
+    - qlik_block       # herformuleer de mutatietekst; blok wordt hervalideerd

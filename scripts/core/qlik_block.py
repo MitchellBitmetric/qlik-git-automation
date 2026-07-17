@@ -1,0 +1,179 @@
+"""qlik_block.py – bouw en injecteer het Qlik 'Log & Version' commentaarblok.
+
+Het blok is een geldig Qlik ``/* ... */`` commentaar zodat een latere Gitoqlok
+pull het weer in de app laadt zonder het script te breken (round-trip). De
+structuur wordt hier deterministisch gebouwd; optionele AI-polish mag alleen de
+tekst herformuleren en wordt daarna opnieuw gevalideerd (zie gemini.py).
+
+Herbruikt find_qlik_changelog_script en update_qlik_changelog uit het
+oorspronkelijke pr_automation.py.
+"""
+
+from __future__ import annotations
+
+import glob
+import os
+import re
+
+# Kolombreedtes voor nette uitlijning in het blok.
+_COL_VERSION = 16
+_COL_DATE = 14
+_COL_NAME = 16
+_SEP_WIDTH = 111
+_SEP = "-" * _SEP_WIDTH
+
+# Herkent een volledig Log & Version blok (voor vervangen / valideren).
+BLOCK_RE = re.compile(r"/\*-{5,}.*?Log\s*&\s*Version.*?-{5,}\*/", re.DOTALL | re.IGNORECASE)
+
+
+# ──────────────────────────────────────────────
+# Bestand vinden
+# ──────────────────────────────────────────────
+
+def read_file(path: str) -> str:
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    return ""
+
+
+def find_qlik_changelog_script(config: dict) -> str | None:
+    """Vind het Qlik-scriptbestand met de Changelog-sectie.
+
+    Volgorde: expliciet pad uit config > glob-patronen uit config > elk .qvs
+    met een ``///$tab ...<marker>`` header.
+    """
+    ls = config.get("load_script", {})
+    explicit = ls.get("path")
+    if explicit and os.path.exists(explicit):
+        return explicit
+
+    for pattern in ls.get("glob", []):
+        matches = glob.glob(pattern, recursive=True)
+        if matches:
+            return matches[0]
+
+    marker = re.escape(ls.get("tab_marker", "Changelog"))
+    tab_re = re.compile(rf"///\s*\$tab\s+.*{marker}", re.IGNORECASE)
+    for path in glob.glob("**/*.qvs", recursive=True):
+        if tab_re.search(read_file(path)):
+            return path
+    return None
+
+
+# ──────────────────────────────────────────────
+# Blok bouwen
+# ──────────────────────────────────────────────
+
+def _format_row(version: str, date: str, name: str, mutation_lines: list[str]) -> list[str]:
+    """Eén versieregel + eventuele vervolgregels, uitgelijnd op de Mutatie-kolom."""
+    indent = " " * (_COL_VERSION + _COL_DATE + _COL_NAME)
+    first, *rest = mutation_lines or [""]
+    rows = [
+        f"{version:<{_COL_VERSION}}{date:<{_COL_DATE}}{name:<{_COL_NAME}}{first}".rstrip()
+    ]
+    for extra in rest:
+        rows.append(f"{indent}{extra}".rstrip())
+    return rows
+
+
+def parse_existing_rows(block: str) -> list[str]:
+    """Haal de bestaande dataregels uit een blok (tussen de twee separators)."""
+    if not block:
+        return []
+    # Alles tussen de eerste separator-na-de-koprij en de afsluitende separator.
+    inner = BLOCK_RE.search(block)
+    if not inner:
+        return []
+    body = inner.group(0)
+    seps = [m.start() for m in re.finditer(r"-{5,}", body)]
+    if len(seps) < 2:
+        return []
+    start = body.index("\n", seps[-2]) + 1 if "\n" in body[seps[-2]:] else seps[-2]
+    end = body.rfind("\n", 0, seps[-1])
+    rows = body[start:end].splitlines()
+    return [r for r in rows if r.strip()]
+
+
+def build_qlik_block(
+    version: str,
+    date: str,
+    author: str,
+    mutation_lines: list[str],
+    previous_block: str = "",
+) -> str:
+    """Bouw een volledig, geldig Log & Version blok met de nieuwe entry bovenaan.
+
+    Bestaande regels uit ``previous_block`` blijven bewaard onder de nieuwe entry.
+    ``version`` mag met of zonder 'v' worden aangeleverd; in het blok staat het
+    zonder 'v' (conform het bestaande formaat).
+    """
+    ver = version.lstrip("v")
+    # Voorkom dat gebruikerstekst het commentaar vroegtijdig afsluit.
+    safe_mutations = [line.replace("*/", "* /") for line in (mutation_lines or ["-"])]
+
+    new_rows = _format_row(ver, date, author, safe_mutations)
+    old_rows = parse_existing_rows(previous_block)
+    # Vermijd dubbele entry bij herhaalde run op dezelfde versie.
+    old_rows = [r for r in old_rows if not r.startswith(f"{ver} ") and r.strip() != ver]
+
+    lines = [
+        f"/*{_SEP}",
+        "Log & Version",
+        "",
+        f"{'Versienummer':<{_COL_VERSION}}{'Datum':<{_COL_DATE}}{'Naam':<{_COL_NAME}}Mutatie",
+        _SEP,
+        *new_rows,
+        *old_rows,
+        f"{_SEP}*/",
+    ]
+    return "\n".join(lines)
+
+
+# ──────────────────────────────────────────────
+# Validatie (round-trip garantie)
+# ──────────────────────────────────────────────
+
+def is_valid_block(block: str) -> bool:
+    """True als het blok een geldig, gesloten Qlik-commentaar is.
+
+    Vereist: begint met /*, eindigt met */, geen voortijdige */ die het
+    commentaar zou sluiten, en herkenbaar als Log & Version blok.
+    """
+    if not block or not block.startswith("/*") or not block.rstrip().endswith("*/"):
+        return False
+    inner = block.rstrip()[2:-2]
+    if "*/" in inner:
+        return False
+    return BLOCK_RE.fullmatch(block.strip()) is not None
+
+
+# ──────────────────────────────────────────────
+# Injecteren in het script
+# ──────────────────────────────────────────────
+
+def update_qlik_changelog(script_content: str, qlik_block: str, tab_marker: str = "Changelog") -> str:
+    """Vervang/plaats het blok in het script. Overgenomen uit pr_automation.py.
+
+    Behoudt alles vóór en inclusief de ``///$tab ...<marker>`` regel en vervangt
+    (of plaatst) het blok daarna.
+    """
+    marker = re.escape(tab_marker)
+    tab_match = re.search(rf"///\s*\$tab\s+.*{marker}[^\n]*\n", script_content, re.IGNORECASE)
+    block_match = BLOCK_RE.search(script_content)
+
+    if tab_match:
+        before_tab = script_content[:tab_match.end()]
+        after_tab = script_content[tab_match.end():]
+
+        if block_match and block_match.start() >= tab_match.end():
+            block_start = block_match.start() - tab_match.end()
+            block_end = block_match.end() - tab_match.end()
+            after_tab = after_tab[:block_start] + qlik_block + after_tab[block_end:]
+        else:
+            after_tab = qlik_block + "\n\n" + after_tab
+        return before_tab + after_tab
+
+    if block_match:
+        return script_content[:block_match.start()] + qlik_block + script_content[block_match.end():]
+    return qlik_block + "\n\n" + script_content

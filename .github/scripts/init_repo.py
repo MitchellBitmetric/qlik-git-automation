@@ -25,36 +25,56 @@ QLIK_MARKER = "%gitoqlok_repo%"
 
 WORKFLOWS = {
     ".github/workflows/pr-changelog.yml": """\
-name: PR Changelog & Docs Automation
+name: Qlik Changelog Preview
 
+# Draait op PR's naar de integratiebranch (feature/* -> dev).
 on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches:
-      - main
-      - master
+      - dev
 
 jobs:
-  run-automation:
+  preview:
     uses: {org}/qlik-git-automation/.github/workflows/pr-changelog.yml@main
     secrets: inherit
 """,
-    ".github/workflows/create-release.yml": """\
-name: Create Release
+    ".github/workflows/release.yml": """\
+name: Qlik Release
 
+# Draait op merge dev -> main. Loop-beveiliging zit in het release-script,
+# maar we slaan een expliciete release-commit hier al over.
 on:
   push:
     branches:
       - main
-      - master
 
 jobs:
-  create-release:
-    if: ${{{{ !contains(github.event.head_commit.message, 'automatisch changelog') }}}}
-    uses: {org}/qlik-git-automation/.github/workflows/create-release.yml@main
+  release:
+    if: ${{{{ !contains(github.event.head_commit.message, '[skip release]') }}}}
+    uses: {org}/qlik-git-automation/.github/workflows/release.yml@main
     secrets: inherit
 """
 }
+
+# Configbestand dat we in nieuwe repo's plaatsen (minimale near-zero setup).
+CONFIG_FILE_PATH = "qlik-release.yml"
+CONFIG_FILE_CONTENT = """\
+# qlik-release.yml — zie qlik-git-automation voor alle opties.
+main_branch: main
+dev_branch: dev
+load_script:
+  path: ""
+  glob:
+    - "**/Changelog.qvs"
+    - "**/*changelog*.qvs"
+  tab_marker: "Changelog"
+initial_version: "v0.0.1"
+ai:
+  polish:
+    - release_notes
+    - qlik_block
+"""
 
 
 def get_repo_info() -> dict:
@@ -90,6 +110,52 @@ def push_file(path: str, content: str, branch: str) -> None:
         resp.raise_for_status()
 
 
+def get_default_branch_sha(branch: str) -> str | None:
+    url  = f"{API}/repos/{ORG_NAME}/{REPO_NAME}/git/ref/heads/{branch}"
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    if resp.status_code == 200:
+        return resp.json()["object"]["sha"]
+    return None
+
+
+def ensure_dev_branch(default_branch: str) -> None:
+    """Maak de dev-integratiebranch aan als die nog niet bestaat."""
+    url = f"{API}/repos/{ORG_NAME}/{REPO_NAME}/git/ref/heads/dev"
+    if requests.get(url, headers=HEADERS, timeout=30).status_code == 200:
+        print("  ⚠ dev-branch bestaat al — overgeslagen.")
+        return
+    sha = get_default_branch_sha(default_branch)
+    if not sha:
+        print("  ⚠ Kon SHA van default branch niet ophalen — dev-branch niet aangemaakt.")
+        return
+    resp = requests.post(
+        f"{API}/repos/{ORG_NAME}/{REPO_NAME}/git/refs",
+        headers=HEADERS, json={"ref": "refs/heads/dev", "sha": sha}, timeout=30,
+    )
+    if resp.status_code == 201:
+        print("  ✔ dev-branch aangemaakt")
+    else:
+        print(f"  ⚠ dev-branch niet aangemaakt: {resp.status_code} – {resp.text}")
+
+
+def protect_main(branch: str) -> None:
+    """Beperk main tot PR-merges (releases). Best-effort; vereist admin-rechten."""
+    url = f"{API}/repos/{ORG_NAME}/{REPO_NAME}/branches/{branch}/protection"
+    body = {
+        "required_status_checks": None,
+        "enforce_admins": False,
+        "required_pull_request_reviews": {"required_approving_review_count": 1},
+        "restrictions": None,
+        "allow_force_pushes": False,
+        "allow_deletions": False,
+    }
+    resp = requests.put(url, headers=HEADERS, json=body, timeout=30)
+    if resp.status_code == 200:
+        print(f"  ✔ Branch protection op '{branch}' ingesteld")
+    else:
+        print(f"  ⚠ Branch protection niet ingesteld: {resp.status_code} – {resp.text}")
+
+
 def main() -> None:
     print(f"── Repo initialiseren: {ORG_NAME}/{REPO_NAME} ──")
 
@@ -108,6 +174,12 @@ def main() -> None:
 
     for path, content in WORKFLOWS.items():
         push_file(path, content.format(org=ORG_NAME), branch)
+
+    push_file(CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
+
+    print("\n▶ Branchmodel opzetten …")
+    ensure_dev_branch(branch)
+    protect_main(branch)
 
     print("\n✅ Klaar!")
 
