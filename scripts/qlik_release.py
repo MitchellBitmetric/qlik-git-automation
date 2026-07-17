@@ -170,6 +170,11 @@ def main() -> int:
     platform.create_tag_push(new_version)
     platform.create_release(new_version, f"Release {new_version}", release_notes, commit_sha)
 
+    # 7. dev bijwerken naar main, zodat de integratiebranch niet achterloopt op
+    #    de release-commit (voorkomt drift + valse diffs in de volgende PR/MR).
+    if config.get("sync_dev_after_release", True):
+        platform.sync_branch(config["dev_branch"])
+
     print(f"\n✅ Release {new_version} voltooid.")
     return 0
 

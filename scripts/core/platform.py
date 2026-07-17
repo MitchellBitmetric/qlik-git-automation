@@ -31,6 +31,15 @@ class Platform(ABC):
     def push_commit(self, branch: str) -> None:
         """Push de huidige HEAD naar ``branch`` op origin."""
 
+    @abstractmethod
+    def sync_branch(self, branch: str) -> bool:
+        """Fast-forward ``branch`` naar de huidige HEAD (best-effort).
+
+        Geeft True bij succes. Forcet nooit: als ``branch`` is afgeweken van
+        HEAD (non-fast-forward) wordt een waarschuwing gelogd en False terug-
+        gegeven, zodat een reeds aangemaakte release niet alsnog faalt.
+        """
+
 
 def detect_platform() -> Platform:
     """Kies de adapter op basis van de CI-omgevingsvariabelen."""

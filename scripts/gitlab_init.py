@@ -55,7 +55,35 @@ ai:
     - qlik_block
 """
 
-SEEDED_SENTINEL = CI_FILE_PATH
+# MR-template: GitLab past dit alleen toe in het project waar de MR wordt
+# aangemaakt, dus het moet in élk consumer-project staan (feature/* -> dev).
+MR_TEMPLATE_PATH = ".gitlab/merge_request_templates/Default.md"
+MR_TEMPLATE_CONTENT = """\
+<!-- MR-template voor Gitoqlok-beheerde Qlik-repo's -->
+
+## Wat verandert er?
+
+<!-- Korte omschrijving van de wijziging in de Qlik-app (sheets, measures, script, ...) -->
+
+## Type wijziging
+
+- [ ] `feat:` nieuwe functionaliteit
+- [ ] `fix:` bugfix
+- [ ] `docs:` documentatie
+- [ ] `chore:` onderhoud / overig
+
+## Checklist
+
+- [ ] Deze MR is gericht op **`dev`** (niet rechtstreeks op `main`)
+- [ ] Commit-berichten beschrijven de wijziging (bij voorkeur `type: omschrijving`)
+- [ ] Wijziging is via **Gitoqlok** vanuit de Qlik-app gecommit
+
+> Versienummer en release worden automatisch bepaald bij de merge naar `main`.
+"""
+
+# Wijs de sentinel naar het nieuwst toegevoegde bestand, zodat eerder geseede
+# projecten die dit nog missen opnieuw langs seed_project gaan (idempotent).
+SEEDED_SENTINEL = MR_TEMPLATE_PATH
 
 
 # ──────────────────────────────────────────────
@@ -138,6 +166,38 @@ def protect_main(pid: int, branch: str) -> None:
         print(f"    ⚠ Branch protection niet ingesteld: {resp.status_code} – {resp.text}")
 
 
+def protect_dev(pid: int, branch: str = "dev") -> None:
+    """Bescherm dev tegen verwijdering/force-push, maar houd hem pushbaar
+    (developers + maintainers), zodat de release-bot dev kan bijwerken naar main."""
+    requests.delete(
+        f"{API}/projects/{pid}/protected_branches/{quote(branch, safe='')}",
+        headers=HEADERS, timeout=30,
+    )
+    url = (
+        f"{API}/projects/{pid}/protected_branches"
+        f"?name={quote(branch, safe='')}&push_access_level=30&merge_access_level=30"
+        f"&allow_force_push=false"
+    )
+    resp = requests.post(url, headers=HEADERS, timeout=30)
+    if resp.status_code in (200, 201):
+        print(f"    ✔ Branch protection op '{branch}' ingesteld (niet verwijderbaar)")
+    else:
+        print(f"    ⚠ Dev-protection niet ingesteld: {resp.status_code} – {resp.text}")
+
+
+def disable_remove_source_branch(pid: int) -> None:
+    """Zet de projectstandaard 'verwijder source branch bij merge' uit, zodat
+    dev na een dev -> main merge NIET wordt verwijderd."""
+    resp = requests.put(
+        f"{API}/projects/{pid}",
+        headers=HEADERS, json={"remove_source_branch_after_merge": False}, timeout=30,
+    )
+    if resp.status_code == 200:
+        print("    ✔ 'remove source branch after merge' uitgezet (dev blijft behouden)")
+    else:
+        print(f"    ⚠ Projectinstelling niet aangepast: {resp.status_code} – {resp.text}")
+
+
 def protect_tags(pid: int) -> None:
     url = f"{API}/projects/{pid}/protected_tags?name=v*&create_access_level=40"
     resp = requests.post(url, headers=HEADERS, timeout=30)
@@ -161,8 +221,11 @@ def seed_project(project: dict) -> bool:
     print(f"  ▶ {path}  (default: {branch})")
     push_file(pid, CI_FILE_PATH, CI_FILE_CONTENT, branch)
     push_file(pid, CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
+    push_file(pid, MR_TEMPLATE_PATH, MR_TEMPLATE_CONTENT, branch)
     ensure_dev_branch(pid, branch)
+    disable_remove_source_branch(pid)
     protect_main(pid, branch)
+    protect_dev(pid, "dev")
     protect_tags(pid)
     return True
 

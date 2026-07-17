@@ -14,6 +14,7 @@
 stages:
   - onboard
   - preview
+  - release-pr
   - release
 
 variables:
@@ -52,6 +53,16 @@ qlik_changelog_preview:
     - git checkout -B "$CI_COMMIT_REF_NAME"
     - python /tmp/automation/scripts/qlik_preview.py
     - git push "https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:"$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+
+# push naar dev : maak/bijwerk de dev -> main MR met titel + changelog-omschrijving
+qlik_release_mr:
+  extends: .qlik_base
+  stage: release-pr
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev" && $CI_COMMIT_MESSAGE !~ /\[skip release\]/'
+  script:
+    - git fetch --tags
+    - python /tmp/automation/scripts/gitlab_release_mr.py
 
 # dev -> main : versie, changelog, injectie, commit-back, tag + release
 qlik_release:

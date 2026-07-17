@@ -79,7 +79,53 @@ jobs:
       automation_repo: {auto}/qlik-git-automation
     secrets: inherit
 """,
+    ".github/workflows/release-pr.yml": """\
+name: Qlik Release PR
+
+# Draait op elke push naar dev en houdt de dev -> main PR bij: titel
+# ("Release vX.Y.Z") en changelog-omschrijving worden automatisch ingevuld.
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  release-pr:
+    if: ${{{{ !contains(github.event.head_commit.message, '[skip release]') }}}}
+    uses: {auto}/qlik-git-automation/.github/workflows/release-pr.yml@main
+    with:
+      automation_repo: {auto}/qlik-git-automation
+    secrets: inherit
+""",
 }
+
+# PR-template: GitHub past dit alleen toe in de repo waar de PR wordt aangemaakt,
+# dus het moet in élke consumer-repo staan (feature/* -> dev krijgt zo de checklist).
+PR_TEMPLATE_PATH = ".github/pull_request_template.md"
+PR_TEMPLATE_CONTENT = """\
+<!-- PR-template voor Gitoqlok-beheerde Qlik-repo's -->
+
+## Wat verandert er?
+
+<!-- Korte omschrijving van de wijziging in de Qlik-app (sheets, measures, script, ...) -->
+
+## Type wijziging
+
+- [ ] `feat:` nieuwe functionaliteit
+- [ ] `fix:` bugfix
+- [ ] `docs:` documentatie
+- [ ] `chore:` onderhoud / overig
+
+## Checklist
+
+- [ ] Deze PR is gericht op **`dev`** (niet rechtstreeks op `main`)
+- [ ] Commit-berichten beschrijven de wijziging (bij voorkeur `type: omschrijving`)
+- [ ] Wijziging is via **Gitoqlok** vanuit de Qlik-app gecommit
+- [ ] Ik snap dat de changelog automatisch wordt gegenereerd bij merge `dev -> main`
+
+> Versienummer en release worden automatisch bepaald bij de merge naar `main`.
+> Je hoeft zelf geen changelog of versienummer bij te werken.
+"""
 
 CONFIG_FILE_PATH = "qlik-release.yml"
 CONFIG_FILE_CONTENT = """\
@@ -99,8 +145,10 @@ ai:
     - qlik_block
 """
 
-# Bestand dat als "al geseed"-markering geldt (idempotente scan).
-SEEDED_SENTINEL = ".github/workflows/release.yml"
+# Bestand dat als "volledig geseed"-markering geldt (idempotente scan). Wijs naar
+# het nieuwst toegevoegde bestand, zodat eerder geseede repos die dit nog missen
+# opnieuw langs seed_repo gaan (push_file slaat bestaande bestanden over).
+SEEDED_SENTINEL = ".github/workflows/release-pr.yml"
 
 
 def automation_org_for(target_org: str) -> str:
@@ -185,6 +233,40 @@ def protect_main(org: str, repo: str, branch: str) -> None:
         print(f"    ⚠ Branch protection niet ingesteld: {resp.status_code} – {resp.text}")
 
 
+def protect_dev(org: str, repo: str, branch: str = "dev") -> None:
+    """Bescherm dev tegen verwijdering en force-push, maar laat gewone pushes toe.
+
+    GÉÉN PR-review-eis: de release-bot moet dev na een release fast-forward naar
+    main kunnen pushen. Dit is puur een vangnet tegen (per ongeluk) verwijderen —
+    het uitzetten van 'delete branch on merge' voorkomt de automatische verwijdering.
+    """
+    url = f"{API}/repos/{org}/{repo}/branches/{branch}/protection"
+    body = {
+        "required_status_checks": None,
+        "enforce_admins": False,
+        "required_pull_request_reviews": None,
+        "restrictions": None,
+        "allow_force_pushes": False,
+        "allow_deletions": False,
+    }
+    resp = requests.put(url, headers=HEADERS, json=body, timeout=30)
+    if resp.status_code == 200:
+        print(f"    ✔ Branch protection op '{branch}' ingesteld (niet verwijderbaar)")
+    else:
+        print(f"    ⚠ Dev-protection niet ingesteld: {resp.status_code} – {resp.text}")
+
+
+def disable_delete_branch_on_merge(org: str, repo: str) -> None:
+    """Zet 'automatically delete head branches' uit, zodat dev na een
+    dev -> main merge NIET wordt verwijderd."""
+    url = f"{API}/repos/{org}/{repo}"
+    resp = requests.patch(url, headers=HEADERS, json={"delete_branch_on_merge": False}, timeout=30)
+    if resp.status_code == 200:
+        print("    ✔ 'delete branch on merge' uitgezet (dev blijft behouden)")
+    else:
+        print(f"    ⚠ Repo-instelling niet aangepast: {resp.status_code} – {resp.text}")
+
+
 # ──────────────────────────────────────────────
 # Seed één repo
 # ──────────────────────────────────────────────
@@ -204,9 +286,12 @@ def seed_repo(org: str, repo: str, info: dict | None = None) -> bool:
     for path, content in WORKFLOWS.items():
         push_file(org, repo, path, content.format(auto=auto), branch)
     push_file(org, repo, CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
+    push_file(org, repo, PR_TEMPLATE_PATH, PR_TEMPLATE_CONTENT, branch)
 
     ensure_dev_branch(org, repo, branch)
+    disable_delete_branch_on_merge(org, repo)
     protect_main(org, repo, branch)
+    protect_dev(org, repo, "dev")
     return True
 
 
