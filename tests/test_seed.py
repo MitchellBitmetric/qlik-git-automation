@@ -20,6 +20,8 @@ def test_seed_runs_for_marked_repo(monkeypatch):
     monkeypatch.setattr(ir, "push_file", lambda org, repo, path, *a, **k: calls.append(("push", path)))
     monkeypatch.setattr(ir, "ensure_dev_branch", lambda *a, **k: calls.append(("dev", None)))
     monkeypatch.setattr(ir, "protect_main", lambda *a, **k: calls.append(("protect", None)))
+    monkeypatch.setattr(ir, "protect_dev", lambda *a, **k: calls.append(("protect_dev", None)))
+    monkeypatch.setattr(ir, "disable_delete_branch_on_merge", lambda *a, **k: calls.append(("no_delete", None)))
     info = {"description": "Sales %gitoqlok_repo%", "default_branch": "main"}
     assert ir.seed_repo("acme", "sales", info) is True
     kinds = [c[0] for c in calls]
@@ -28,6 +30,7 @@ def test_seed_runs_for_marked_repo(monkeypatch):
     assert ".github/pull_request_template.md" in pushed
     assert ".github/workflows/release-pr.yml" in pushed
     assert "dev" in kinds and "protect" in kinds
+    assert "protect_dev" in kinds and "no_delete" in kinds
 
 
 def test_seed_uses_automation_org_in_caller(monkeypatch):
@@ -36,6 +39,8 @@ def test_seed_uses_automation_org_in_caller(monkeypatch):
                         lambda org, repo, path, content, branch: pushed.setdefault(path, content))
     monkeypatch.setattr(ir, "ensure_dev_branch", lambda *a, **k: None)
     monkeypatch.setattr(ir, "protect_main", lambda *a, **k: None)
+    monkeypatch.setattr(ir, "protect_dev", lambda *a, **k: None)
+    monkeypatch.setattr(ir, "disable_delete_branch_on_merge", lambda *a, **k: None)
     monkeypatch.setattr(ir, "AUTOMATION_ORG", "bitmetric-bv")     # centraal model
     info = {"description": "%gitoqlok_repo%", "default_branch": "main"}
     ir.seed_repo("klant-org", "sales", info)

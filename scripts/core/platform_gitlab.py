@@ -41,6 +41,16 @@ class GitLabPlatform:
         subprocess.run(["git", "push", self._authenticated_remote(), f"HEAD:{branch}"], check=True)
         print(f"  ✔ Commit gepusht naar {branch}")
 
+    def sync_branch(self, branch: str) -> bool:
+        result = subprocess.run(
+            ["git", "push", self._authenticated_remote(), f"HEAD:{branch}"]
+        )
+        if result.returncode == 0:
+            print(f"  ✔ '{branch}' bijgewerkt naar main")
+            return True
+        print(f"  ⚠ '{branch}' niet fast-forward bij te werken (afgeweken?) — overgeslagen.")
+        return False
+
     def create_release(self, tag: str, name: str, body: str, commit_sha: str) -> str:
         url = f"{self.api}/projects/{self.project_id}/releases"
         payload = {"tag_name": tag, "name": name, "description": body, "ref": commit_sha}

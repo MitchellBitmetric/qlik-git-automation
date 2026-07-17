@@ -70,6 +70,7 @@ def main() -> int:
             "target_branch": main_branch,
             "title": title,
             "description": body,
+            "remove_source_branch": False,   # dev blijft na merge behouden
         },
         timeout=30,
     )

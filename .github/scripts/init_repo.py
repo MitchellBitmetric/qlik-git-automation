@@ -233,6 +233,40 @@ def protect_main(org: str, repo: str, branch: str) -> None:
         print(f"    ⚠ Branch protection niet ingesteld: {resp.status_code} – {resp.text}")
 
 
+def protect_dev(org: str, repo: str, branch: str = "dev") -> None:
+    """Bescherm dev tegen verwijdering en force-push, maar laat gewone pushes toe.
+
+    GÉÉN PR-review-eis: de release-bot moet dev na een release fast-forward naar
+    main kunnen pushen. Dit is puur een vangnet tegen (per ongeluk) verwijderen —
+    het uitzetten van 'delete branch on merge' voorkomt de automatische verwijdering.
+    """
+    url = f"{API}/repos/{org}/{repo}/branches/{branch}/protection"
+    body = {
+        "required_status_checks": None,
+        "enforce_admins": False,
+        "required_pull_request_reviews": None,
+        "restrictions": None,
+        "allow_force_pushes": False,
+        "allow_deletions": False,
+    }
+    resp = requests.put(url, headers=HEADERS, json=body, timeout=30)
+    if resp.status_code == 200:
+        print(f"    ✔ Branch protection op '{branch}' ingesteld (niet verwijderbaar)")
+    else:
+        print(f"    ⚠ Dev-protection niet ingesteld: {resp.status_code} – {resp.text}")
+
+
+def disable_delete_branch_on_merge(org: str, repo: str) -> None:
+    """Zet 'automatically delete head branches' uit, zodat dev na een
+    dev -> main merge NIET wordt verwijderd."""
+    url = f"{API}/repos/{org}/{repo}"
+    resp = requests.patch(url, headers=HEADERS, json={"delete_branch_on_merge": False}, timeout=30)
+    if resp.status_code == 200:
+        print("    ✔ 'delete branch on merge' uitgezet (dev blijft behouden)")
+    else:
+        print(f"    ⚠ Repo-instelling niet aangepast: {resp.status_code} – {resp.text}")
+
+
 # ──────────────────────────────────────────────
 # Seed één repo
 # ──────────────────────────────────────────────
@@ -255,7 +289,9 @@ def seed_repo(org: str, repo: str, info: dict | None = None) -> bool:
     push_file(org, repo, PR_TEMPLATE_PATH, PR_TEMPLATE_CONTENT, branch)
 
     ensure_dev_branch(org, repo, branch)
+    disable_delete_branch_on_merge(org, repo)
     protect_main(org, repo, branch)
+    protect_dev(org, repo, "dev")
     return True
 
 

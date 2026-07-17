@@ -166,6 +166,38 @@ def protect_main(pid: int, branch: str) -> None:
         print(f"    ⚠ Branch protection niet ingesteld: {resp.status_code} – {resp.text}")
 
 
+def protect_dev(pid: int, branch: str = "dev") -> None:
+    """Bescherm dev tegen verwijdering/force-push, maar houd hem pushbaar
+    (developers + maintainers), zodat de release-bot dev kan bijwerken naar main."""
+    requests.delete(
+        f"{API}/projects/{pid}/protected_branches/{quote(branch, safe='')}",
+        headers=HEADERS, timeout=30,
+    )
+    url = (
+        f"{API}/projects/{pid}/protected_branches"
+        f"?name={quote(branch, safe='')}&push_access_level=30&merge_access_level=30"
+        f"&allow_force_push=false"
+    )
+    resp = requests.post(url, headers=HEADERS, timeout=30)
+    if resp.status_code in (200, 201):
+        print(f"    ✔ Branch protection op '{branch}' ingesteld (niet verwijderbaar)")
+    else:
+        print(f"    ⚠ Dev-protection niet ingesteld: {resp.status_code} – {resp.text}")
+
+
+def disable_remove_source_branch(pid: int) -> None:
+    """Zet de projectstandaard 'verwijder source branch bij merge' uit, zodat
+    dev na een dev -> main merge NIET wordt verwijderd."""
+    resp = requests.put(
+        f"{API}/projects/{pid}",
+        headers=HEADERS, json={"remove_source_branch_after_merge": False}, timeout=30,
+    )
+    if resp.status_code == 200:
+        print("    ✔ 'remove source branch after merge' uitgezet (dev blijft behouden)")
+    else:
+        print(f"    ⚠ Projectinstelling niet aangepast: {resp.status_code} – {resp.text}")
+
+
 def protect_tags(pid: int) -> None:
     url = f"{API}/projects/{pid}/protected_tags?name=v*&create_access_level=40"
     resp = requests.post(url, headers=HEADERS, timeout=30)
@@ -191,7 +223,9 @@ def seed_project(project: dict) -> bool:
     push_file(pid, CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
     push_file(pid, MR_TEMPLATE_PATH, MR_TEMPLATE_CONTENT, branch)
     ensure_dev_branch(pid, branch)
+    disable_remove_source_branch(pid)
     protect_main(pid, branch)
+    protect_dev(pid, "dev")
     protect_tags(pid)
     return True
 

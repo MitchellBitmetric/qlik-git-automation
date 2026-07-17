@@ -23,6 +23,11 @@ load_script:
 # Ophoging gebeurt met rolling-digit carry: v0.0.9 -> v0.1.0, v0.9.9 -> v1.0.0.
 initial_version: "v0.0.1"
 
+# Werk dev na een release automatisch bij naar main (fast-forward), zodat de
+# integratiebranch niet achterloopt op de release-commit. Zet op false als je
+# dev handmatig wilt beheren.
+sync_dev_after_release: true
+
 # Commit-berichten die GEEN release mogen veroorzaken. De release draait op
 # elke push naar main; deze lijst (plus de automatische [skip release]-marker en
 # bot-commits) voorkomt releases bij housekeeping-commits van Gitoqlok.

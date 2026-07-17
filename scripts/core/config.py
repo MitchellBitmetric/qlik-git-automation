@@ -24,6 +24,9 @@ DEFAULTS: dict[str, Any] = {
         "tab_marker": "Changelog",
     },
     "initial_version": "v0.0.1",
+    # Werk de dev-branch na een release fast-forward bij naar main, zodat de
+    # integratiebranch niet achterloopt op de release-commit.
+    "sync_dev_after_release": True,
     # Commit-berichten die géén release mogen veroorzaken (naast de automatische
     # [skip release]-marker en bot-commits). Bedoeld voor Gitoqlok-housekeeping.
     "skip_release_when": [

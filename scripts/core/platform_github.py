@@ -37,6 +37,14 @@ class GitHubPlatform:
         subprocess.run(["git", "push", "origin", f"HEAD:{branch}"], check=True)
         print(f"  ✔ Commit gepusht naar {branch}")
 
+    def sync_branch(self, branch: str) -> bool:
+        result = subprocess.run(["git", "push", "origin", f"HEAD:{branch}"])
+        if result.returncode == 0:
+            print(f"  ✔ '{branch}' bijgewerkt naar main")
+            return True
+        print(f"  ⚠ '{branch}' niet fast-forward bij te werken (afgeweken?) — overgeslagen.")
+        return False
+
     def create_release(self, tag: str, name: str, body: str, commit_sha: str) -> str:
         url = f"{GH_API}/repos/{self._repo}/releases"
         payload = {
