@@ -5,19 +5,33 @@ Plaatst automatisch de dunne caller-workflows, het configbestand, de
 dev-branch en branch protection in een repo waarvan de beschrijving de marker
 '%gitoqlok_repo%' bevat.
 
+Cross-org: de plek van de automation-repo (AUTOMATION_ORG) staat los van de
+org(s) die worden gescand (TARGET_ORGS). Zo werken beide topologieën:
+  • Centraal: AUTOMATION_ORG=bitmetric-bv, TARGET_ORGS=orgA,orgB (repo public
+    of gedeeld binnen een Enterprise).
+  • Per org: AUTOMATION_ORG=orgA, TARGET_ORGS=orgA (eigen kopie in de org).
+
 Twee modi (idempotent — bestaande bestanden/branches worden overgeslagen):
-  • single : seed één repo (REPO_NAME gezet) — bijv. via repository_dispatch.
-  • scan   : loop de hele org af en seed elke repo met de marker (geen
-             REPO_NAME) — bedoeld voor een geplande run (zero-touch onboarding).
+  • single : seed één repo (REPO_NAME + ORG_NAME gezet) — bijv. via dispatch.
+  • scan   : loop TARGET_ORGS af en seed elke repo met de marker.
+
+Env:
+  GH_TOKEN        PAT met toegang tot de doel-org(s) (contents/workflows/admin)
+  TARGET_ORGS     komma-gescheiden org(s) om te scannen (default: ORG_NAME)
+  ORG_NAME        doel-org in single-modus / default target
+  REPO_NAME       repo in single-modus (leeg = scan)
+  AUTOMATION_ORG  org waar qlik-git-automation staat (default: doel-org)
 """
 
 import os
 import base64
 import requests
 
-GH_TOKEN  = os.environ["GH_TOKEN"]
-ORG_NAME  = os.environ["ORG_NAME"]
-REPO_NAME = os.environ.get("REPO_NAME")  # leeg = scan-modus
+GH_TOKEN       = os.environ["GH_TOKEN"]
+ORG_NAME       = os.environ.get("ORG_NAME")
+REPO_NAME      = os.environ.get("REPO_NAME")           # leeg = scan-modus
+TARGET_ORGS    = [o.strip() for o in os.environ.get("TARGET_ORGS", ORG_NAME or "").split(",") if o.strip()]
+AUTOMATION_ORG = os.environ.get("AUTOMATION_ORG")      # default per org bepaald
 
 HEADERS = {
     "Authorization": f"Bearer {GH_TOKEN}",
@@ -28,6 +42,7 @@ API = "https://api.github.com"
 
 QLIK_MARKER = "%gitoqlok_repo%"
 
+# Caller-workflows. {auto} = AUTOMATION_ORG (waar de reusable workflows staan).
 WORKFLOWS = {
     ".github/workflows/pr-changelog.yml": """\
 name: Qlik Changelog Preview
@@ -41,7 +56,9 @@ on:
 
 jobs:
   preview:
-    uses: {org}/qlik-git-automation/.github/workflows/pr-changelog.yml@main
+    uses: {auto}/qlik-git-automation/.github/workflows/pr-changelog.yml@main
+    with:
+      automation_repo: {auto}/qlik-git-automation
     secrets: inherit
 """,
     ".github/workflows/release.yml": """\
@@ -57,12 +74,13 @@ on:
 jobs:
   release:
     if: ${{{{ !contains(github.event.head_commit.message, '[skip release]') }}}}
-    uses: {org}/qlik-git-automation/.github/workflows/release.yml@main
+    uses: {auto}/qlik-git-automation/.github/workflows/release.yml@main
+    with:
+      automation_repo: {auto}/qlik-git-automation
     secrets: inherit
 """,
 }
 
-# Configbestand dat we in nieuwe repo's plaatsen (minimale near-zero setup).
 CONFIG_FILE_PATH = "qlik-release.yml"
 CONFIG_FILE_CONTENT = """\
 # qlik-release.yml — zie qlik-git-automation voor alle opties.
@@ -85,26 +103,31 @@ ai:
 SEEDED_SENTINEL = ".github/workflows/release.yml"
 
 
+def automation_org_for(target_org: str) -> str:
+    """Waar staat de automation-repo? Expliciet gezet, anders = doel-org."""
+    return AUTOMATION_ORG or target_org
+
+
 # ──────────────────────────────────────────────
-# API-helpers (repo als parameter → herbruikbaar in scan-modus)
+# API-helpers (org + repo als parameter → cross-org bruikbaar)
 # ──────────────────────────────────────────────
 
-def get_repo_info(repo: str) -> dict:
-    resp = requests.get(f"{API}/repos/{ORG_NAME}/{repo}", headers=HEADERS, timeout=30)
+def get_repo_info(org: str, repo: str) -> dict:
+    resp = requests.get(f"{API}/repos/{org}/{repo}", headers=HEADERS, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
-def file_exists(repo: str, path: str, branch: str) -> bool:
-    url = f"{API}/repos/{ORG_NAME}/{repo}/contents/{path}?ref={branch}"
+def file_exists(org: str, repo: str, path: str, branch: str) -> bool:
+    url = f"{API}/repos/{org}/{repo}/contents/{path}?ref={branch}"
     return requests.get(url, headers=HEADERS, timeout=30).status_code == 200
 
 
-def push_file(repo: str, path: str, content: str, branch: str) -> None:
-    if file_exists(repo, path, branch):
+def push_file(org: str, repo: str, path: str, content: str, branch: str) -> None:
+    if file_exists(org, repo, path, branch):
         print(f"    ⚠ {path} bestaat al — overgeslagen.")
         return
-    url     = f"{API}/repos/{ORG_NAME}/{repo}/contents/{path}"
+    url     = f"{API}/repos/{org}/{repo}/contents/{path}"
     encoded = base64.b64encode(content.encode()).decode()
     body    = {
         "message": "chore: workflow-bestanden toegevoegd via qlik-git-automation",
@@ -119,23 +142,23 @@ def push_file(repo: str, path: str, content: str, branch: str) -> None:
         resp.raise_for_status()
 
 
-def get_branch_sha(repo: str, branch: str) -> str | None:
-    url  = f"{API}/repos/{ORG_NAME}/{repo}/git/ref/heads/{branch}"
+def get_branch_sha(org: str, repo: str, branch: str) -> str | None:
+    url  = f"{API}/repos/{org}/{repo}/git/ref/heads/{branch}"
     resp = requests.get(url, headers=HEADERS, timeout=30)
     return resp.json()["object"]["sha"] if resp.status_code == 200 else None
 
 
-def ensure_dev_branch(repo: str, default_branch: str) -> None:
-    url = f"{API}/repos/{ORG_NAME}/{repo}/git/ref/heads/dev"
+def ensure_dev_branch(org: str, repo: str, default_branch: str) -> None:
+    url = f"{API}/repos/{org}/{repo}/git/ref/heads/dev"
     if requests.get(url, headers=HEADERS, timeout=30).status_code == 200:
         print("    ⚠ dev-branch bestaat al — overgeslagen.")
         return
-    sha = get_branch_sha(repo, default_branch)
+    sha = get_branch_sha(org, repo, default_branch)
     if not sha:
         print("    ⚠ Kon SHA van default branch niet ophalen — dev-branch niet aangemaakt.")
         return
     resp = requests.post(
-        f"{API}/repos/{ORG_NAME}/{repo}/git/refs",
+        f"{API}/repos/{org}/{repo}/git/refs",
         headers=HEADERS, json={"ref": "refs/heads/dev", "sha": sha}, timeout=30,
     )
     if resp.status_code == 201:
@@ -144,9 +167,9 @@ def ensure_dev_branch(repo: str, default_branch: str) -> None:
         print(f"    ⚠ dev-branch niet aangemaakt: {resp.status_code} – {resp.text}")
 
 
-def protect_main(repo: str, branch: str) -> None:
+def protect_main(org: str, repo: str, branch: str) -> None:
     """Beperk main tot PR-merges (releases). Best-effort; vereist admin-rechten."""
-    url = f"{API}/repos/{ORG_NAME}/{repo}/branches/{branch}/protection"
+    url = f"{API}/repos/{org}/{repo}/branches/{branch}/protection"
     body = {
         "required_status_checks": None,
         "enforce_admins": False,
@@ -166,35 +189,36 @@ def protect_main(repo: str, branch: str) -> None:
 # Seed één repo
 # ──────────────────────────────────────────────
 
-def seed_repo(repo: str, info: dict | None = None) -> bool:
+def seed_repo(org: str, repo: str, info: dict | None = None) -> bool:
     """Seed één repo. Geeft True als er iets is gedaan, False bij overslaan."""
-    info        = info or get_repo_info(repo)
+    info        = info or get_repo_info(org, repo)
     description = info.get("description") or ""
     branch      = info.get("default_branch", "main")
 
     if QLIK_MARKER not in description:
         return False
 
-    print(f"  ▶ {ORG_NAME}/{repo}  (default: {branch})")
+    auto = automation_org_for(org)
+    print(f"  ▶ {org}/{repo}  (default: {branch}, automation: {auto})")
 
     for path, content in WORKFLOWS.items():
-        push_file(repo, path, content.format(org=ORG_NAME), branch)
-    push_file(repo, CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
+        push_file(org, repo, path, content.format(auto=auto), branch)
+    push_file(org, repo, CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
 
-    ensure_dev_branch(repo, branch)
-    protect_main(repo, branch)
+    ensure_dev_branch(org, repo, branch)
+    protect_main(org, repo, branch)
     return True
 
 
 # ──────────────────────────────────────────────
-# Scan de hele org
+# Scan org(s)
 # ──────────────────────────────────────────────
 
-def list_org_repos() -> list[dict]:
+def list_org_repos(org: str) -> list[dict]:
     repos: list[dict] = []
     page = 1
     while True:
-        url = f"{API}/orgs/{ORG_NAME}/repos?per_page=100&page={page}&type=all"
+        url = f"{API}/orgs/{org}/repos?per_page=100&page={page}&type=all"
         resp = requests.get(url, headers=HEADERS, timeout=30)
         resp.raise_for_status()
         batch = resp.json()
@@ -205,26 +229,24 @@ def list_org_repos() -> list[dict]:
     return repos
 
 
-def scan_org() -> None:
-    print(f"── Scan org '{ORG_NAME}' op Qlik-repo's ──")
-    repos = list_org_repos()
+def scan_org(org: str) -> tuple[int, int]:
+    print(f"── Scan org '{org}' op Qlik-repo's ──")
+    repos = list_org_repos(org)
     print(f"  {len(repos)} repo(s) gevonden")
 
     seeded = skipped = 0
     for info in repos:
         repo = info["name"]
-        description = info.get("description") or ""
-        if QLIK_MARKER not in description:
+        if QLIK_MARKER not in (info.get("description") or ""):
             continue
         branch = info.get("default_branch", "main")
-        if file_exists(repo, SEEDED_SENTINEL, branch):
+        if file_exists(org, repo, SEEDED_SENTINEL, branch):
             print(f"  ⏭  {repo} al geseed — overgeslagen")
             skipped += 1
             continue
-        if seed_repo(repo, info):
+        if seed_repo(org, repo, info):
             seeded += 1
-
-    print(f"\n✅ Scan klaar — {seeded} geseed, {skipped} al gereed.")
+    return seeded, skipped
 
 
 # ──────────────────────────────────────────────
@@ -233,13 +255,23 @@ def scan_org() -> None:
 
 def main() -> None:
     if REPO_NAME:
-        print(f"── Repo initialiseren: {ORG_NAME}/{REPO_NAME} ──")
-        if not seed_repo(REPO_NAME):
+        org = ORG_NAME
+        print(f"── Repo initialiseren: {org}/{REPO_NAME} ──")
+        if not seed_repo(org, REPO_NAME):
             print(f"  ⚠ Geen Qlik Sense repo (marker '{QLIK_MARKER}' niet gevonden) — overgeslagen.")
         else:
             print("\n✅ Klaar!")
-    else:
-        scan_org()
+        return
+
+    if not TARGET_ORGS:
+        raise SystemExit("Zet TARGET_ORGS (of ORG_NAME) voor de scan-modus.")
+
+    total_seeded = total_skipped = 0
+    for org in TARGET_ORGS:
+        s, k = scan_org(org)
+        total_seeded += s
+        total_skipped += k
+    print(f"\n✅ Scan klaar over {len(TARGET_ORGS)} org(s) — {total_seeded} geseed, {total_skipped} al gereed.")
 
 
 if __name__ == "__main__":

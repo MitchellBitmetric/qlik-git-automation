@@ -7,7 +7,12 @@ name: Scheduled Repo Onboarding (scan)
 on:
   schedule:
     - cron: "17 * * * *"   # elk uur (op :17 om de piek te mijden)
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      target_orgs:
+        description: "Komma-gescheiden org(s) om te scannen (leeg = repo-variabele/eigen org)"
+        required: false
+        type: string
 
 jobs:
   scan-and-seed:
@@ -24,9 +29,12 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Scan org and seed Qlik repos
+      - name: Scan org(s) and seed Qlik repos
         env:
           GH_TOKEN: ${{ secrets.AUTOMATION_PAT }}
-          ORG_NAME: ${{ github.repository_owner }}
+          # Te scannen org(s): handmatige input > repo-variabele > eigen org.
+          TARGET_ORGS: ${{ inputs.target_orgs || vars.TARGET_ORGS || github.repository_owner }}
+          # Waar de reusable workflows staan (deze automation-repo).
+          AUTOMATION_ORG: ${{ vars.AUTOMATION_ORG || github.repository_owner }}
           # REPO_NAME bewust leeg → scan-modus
         run: python .github/scripts/init_repo.py
