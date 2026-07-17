@@ -105,6 +105,47 @@ def test_injection_after_tab_marker():
     assert found and qb.is_valid_block(found.group(0))              # round-trip
 
 
+def _block_directly_after_tab(out: str, marker="Changelog") -> bool:
+    """True als het /* ... */ blok op de regel(s) direct ná de $tab-regel staat."""
+    lines = out.splitlines()
+    for i, line in enumerate(lines):
+        if "$tab" in line and marker in line:
+            # Eerstvolgende niet-lege regel moet de blokopening zijn.
+            j = i + 1
+            while j < len(lines) and lines[j].strip() == "":
+                j += 1
+            return j < len(lines) and lines[j].startswith("/*")
+    return False
+
+
+def test_injection_block_directly_after_tab_at_eof():
+    # $tab-regel is de laatste regel, zónder afsluitende newline.
+    script = "///$tab Main\nLOAD 1 AS a AUTOGENERATE 1;\n///$tab Changelog"
+    block = qb.build_qlik_block("v0.1.0", "2026-07-17", "Alice", ["x"])
+    out = qb.update_qlik_changelog(script, block, "Changelog")
+    assert _block_directly_after_tab(out)
+    assert qb.is_valid_block(qb.BLOCK_RE.search(out).group(0))
+
+
+def test_injection_block_after_tab_with_emoji_prefix():
+    script = "///$tab 📝 Changelog\n"
+    block = qb.build_qlik_block("v0.1.0", "2026-07-17", "Alice", ["x"])
+    out = qb.update_qlik_changelog(script, block, "Changelog")
+    assert _block_directly_after_tab(out)
+
+
+def test_injection_block_after_tab_preserves_following_content():
+    # Er staat script ná de Changelog-tab; blok moet direct onder de tab,
+    # de overige inhoud blijft eronder staan.
+    script = "///$tab Changelog\n///$tab Extra\nLOAD 2 AS b AUTOGENERATE 1;\n"
+    block = qb.build_qlik_block("v0.1.0", "2026-07-17", "Alice", ["x"])
+    out = qb.update_qlik_changelog(script, block, "Changelog")
+    assert _block_directly_after_tab(out)
+    assert "///$tab Extra" in out and "LOAD 2 AS b" in out       # inhoud behouden
+    # Volgorde: Changelog-tab -> blok -> Extra-tab
+    assert out.index("$tab Changelog") < out.index("/*") < out.index("$tab Extra")
+
+
 def test_injection_replaces_existing_block_in_place():
     block1 = qb.build_qlik_block("v0.0.9", "2026-07-10", "Bob", ["oud"])
     script = f"///$tab Changelog\n{block1}\n"
