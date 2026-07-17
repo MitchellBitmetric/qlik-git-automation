@@ -199,6 +199,44 @@ def test_gemini_accepts_valid_polished_block(monkeypatch):
     assert gemini.polish_qlik_block(block, DEFAULTS) == valid
 
 
+# ── release-PR/MR tekst (gedeeld GitHub + GitLab) ────────────
+
+def test_release_pr_text_filters_and_titles(monkeypatch):
+    from core import release_pr, semver
+    from core.gitutil import get_commits_since  # noqa: F401
+    monkeypatch.setattr(release_pr.semver, "get_latest_tag", lambda: "v0.0.9")
+    monkeypatch.setattr(
+        release_pr.semver, "determine_next_version", lambda iv: ("v0.0.9", "v0.1.0")
+    )
+    monkeypatch.setattr(release_pr, "get_commits_since", lambda ref: [
+        Commit("a1", "feat: nieuw dashboard", "Alice"),
+        Commit("b2", "Update branches table", "Alice"),
+    ])
+    cfg = {"initial_version": "v0.0.1",
+           "skip_release_when": ["Update branches table"]}
+    has_changes, title, body = release_pr.build_release_pr_text(
+        cfg, "qlik-release-bot", "[skip release]", today="2026-07-17"
+    )
+    assert has_changes is True
+    assert title == "Release v0.1.0"
+    assert "nieuw dashboard" in body
+    assert "Update branches table" not in body
+
+
+def test_release_pr_text_no_changes(monkeypatch):
+    from core import release_pr
+    monkeypatch.setattr(release_pr.semver, "get_latest_tag", lambda: "v0.1.0")
+    monkeypatch.setattr(
+        release_pr.semver, "determine_next_version", lambda iv: ("v0.1.0", "v0.1.1")
+    )
+    monkeypatch.setattr(release_pr, "get_commits_since", lambda ref: [])
+    has_changes, title, body = release_pr.build_release_pr_text(
+        {"initial_version": "v0.0.1"}, "qlik-release-bot", "[skip release]"
+    )
+    assert has_changes is False
+    assert title == "Release v0.1.1"
+
+
 # ── config merge ─────────────────────────────────────────────
 
 def test_config_deep_merge_keeps_defaults():

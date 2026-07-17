@@ -55,7 +55,35 @@ ai:
     - qlik_block
 """
 
-SEEDED_SENTINEL = CI_FILE_PATH
+# MR-template: GitLab past dit alleen toe in het project waar de MR wordt
+# aangemaakt, dus het moet in élk consumer-project staan (feature/* -> dev).
+MR_TEMPLATE_PATH = ".gitlab/merge_request_templates/Default.md"
+MR_TEMPLATE_CONTENT = """\
+<!-- MR-template voor Gitoqlok-beheerde Qlik-repo's -->
+
+## Wat verandert er?
+
+<!-- Korte omschrijving van de wijziging in de Qlik-app (sheets, measures, script, ...) -->
+
+## Type wijziging
+
+- [ ] `feat:` nieuwe functionaliteit
+- [ ] `fix:` bugfix
+- [ ] `docs:` documentatie
+- [ ] `chore:` onderhoud / overig
+
+## Checklist
+
+- [ ] Deze MR is gericht op **`dev`** (niet rechtstreeks op `main`)
+- [ ] Commit-berichten beschrijven de wijziging (bij voorkeur `type: omschrijving`)
+- [ ] Wijziging is via **Gitoqlok** vanuit de Qlik-app gecommit
+
+> Versienummer en release worden automatisch bepaald bij de merge naar `main`.
+"""
+
+# Wijs de sentinel naar het nieuwst toegevoegde bestand, zodat eerder geseede
+# projecten die dit nog missen opnieuw langs seed_project gaan (idempotent).
+SEEDED_SENTINEL = MR_TEMPLATE_PATH
 
 
 # ──────────────────────────────────────────────
@@ -161,6 +189,7 @@ def seed_project(project: dict) -> bool:
     print(f"  ▶ {path}  (default: {branch})")
     push_file(pid, CI_FILE_PATH, CI_FILE_CONTENT, branch)
     push_file(pid, CONFIG_FILE_PATH, CONFIG_FILE_CONTENT, branch)
+    push_file(pid, MR_TEMPLATE_PATH, MR_TEMPLATE_CONTENT, branch)
     ensure_dev_branch(pid, branch)
     protect_main(pid, branch)
     protect_tags(pid)
