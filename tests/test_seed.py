@@ -23,7 +23,10 @@ def test_seed_runs_for_marked_repo(monkeypatch):
     info = {"description": "Sales %gitoqlok_repo%", "default_branch": "main"}
     assert ir.seed_repo("acme", "sales", info) is True
     kinds = [c[0] for c in calls]
-    assert kinds.count("push") == 3          # 2 workflows + config
+    pushed = [c[1] for c in calls if c[0] == "push"]
+    assert kinds.count("push") == 5          # 3 workflows + config + PR-template
+    assert ".github/pull_request_template.md" in pushed
+    assert ".github/workflows/release-pr.yml" in pushed
     assert "dev" in kinds and "protect" in kinds
 
 
