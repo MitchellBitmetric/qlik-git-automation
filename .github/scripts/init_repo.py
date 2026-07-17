@@ -130,7 +130,7 @@ def push_file(org: str, repo: str, path: str, content: str, branch: str) -> None
     url     = f"{API}/repos/{org}/{repo}/contents/{path}"
     encoded = base64.b64encode(content.encode()).decode()
     body    = {
-        "message": "chore: workflow-bestanden toegevoegd via qlik-git-automation",
+        "message": "chore: workflow-bestanden toegevoegd via qlik-git-automation [skip release]",
         "content": encoded,
         "branch":  branch,
     }

@@ -200,5 +200,13 @@ bijwerken doe je via een Gitoqlok pull. Zie [ADR-0001](docs/adr/0001-gitoqlok-wr
 **Retriggert de terugcommit de pipeline?** Nee. Release-commits krijgen de marker
 `[skip release]` en een bot-auteur; het script en de caller-workflow slaan die over.
 
+**Welke commits veroorzaken géén release?** (1) commits met `[skip release]` in het
+bericht — inclusief de seeding van de workflow-bestanden; (2) commits door de
+release-bot; (3) commits waarvan het bericht een patroon uit `skip_release_when`
+bevat. Standaard staat daar Gitoqlok-housekeeping in
+(`Gitoqlok: auto-restore app properties after merge`); je kunt eigen patronen
+toevoegen in `qlik-release.yml`. Zo veroorzaakt het plaatsen van de
+workflow-bestanden zelf geen release.
+
 **Ik wil minor/major forceren.** Maak handmatig een tag aan (bijv. `v0.2.0`); de
 volgende release rekent vanaf daar verder.

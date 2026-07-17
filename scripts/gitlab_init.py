@@ -93,7 +93,7 @@ def push_file(pid: int, path: str, content: str, branch: str) -> None:
     body = {
         "branch": branch,
         "content": content,
-        "commit_message": "chore: workflow-bestanden toegevoegd via qlik-git-automation",
+        "commit_message": "chore: workflow-bestanden toegevoegd via qlik-git-automation [skip release]",
     }
     resp = requests.post(url, headers=HEADERS, json=body, timeout=30)
     if resp.status_code in (200, 201):

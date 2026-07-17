@@ -153,26 +153,36 @@ def is_valid_block(block: str) -> bool:
 # ──────────────────────────────────────────────
 
 def update_qlik_changelog(script_content: str, qlik_block: str, tab_marker: str = "Changelog") -> str:
-    """Vervang/plaats het blok in het script. Overgenomen uit pr_automation.py.
+    """Plaats het blok altijd direct ná de ``///$tab ...<marker>`` regel.
 
-    Behoudt alles vóór en inclusief de ``///$tab ...<marker>`` regel en vervangt
-    (of plaatst) het blok daarna.
+    Behoudt alles vóór en inclusief de $tab-regel, en zet het blok op een eigen
+    regel daaronder. Een bestaand blok ná de $tab-regel wordt in-place vervangen.
+    De $tab-regel wordt ook herkend als die aan het einde van het bestand staat
+    zonder afsluitende newline.
     """
     marker = re.escape(tab_marker)
-    tab_match = re.search(rf"///\s*\$tab\s+.*{marker}[^\n]*\n", script_content, re.IGNORECASE)
+    # Newline achter de $tab-regel is optioneel (kan laatste regel zijn).
+    tab_match = re.search(rf"///\s*\$tab\s+.*{marker}[^\n]*(?:\n|$)", script_content, re.IGNORECASE)
     block_match = BLOCK_RE.search(script_content)
 
     if tab_match:
-        before_tab = script_content[:tab_match.end()]
-        after_tab = script_content[tab_match.end():]
+        # Normaliseer: $tab-regel + precies één newline, dan het blok.
+        tab_line = script_content[tab_match.start():tab_match.end()].rstrip("\n")
+        before = script_content[:tab_match.start()] + tab_line + "\n"
+        after = script_content[tab_match.end():]
 
         if block_match and block_match.start() >= tab_match.end():
-            block_start = block_match.start() - tab_match.end()
-            block_end = block_match.end() - tab_match.end()
-            after_tab = after_tab[:block_start] + qlik_block + after_tab[block_end:]
-        else:
-            after_tab = qlik_block + "\n\n" + after_tab
-        return before_tab + after_tab
+            # Bestaand blok ná de $tab-regel: in-place vervangen.
+            rel_start = block_match.start() - tab_match.end()
+            rel_end = block_match.end() - tab_match.end()
+            after = after[:rel_start] + qlik_block + after[rel_end:]
+            return before + after
+
+        # Geen blok ná de $tab-regel: nieuw blok invoegen, resterende inhoud eronder.
+        rest = after.lstrip("\n")
+        if rest:
+            return before + qlik_block + "\n\n" + rest
+        return before + qlik_block + "\n"
 
     if block_match:
         return script_content[:block_match.start()] + qlik_block + script_content[block_match.end():]
